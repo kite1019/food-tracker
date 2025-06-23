@@ -8,23 +8,28 @@
           <label class="col-form-label">日期：</label>
         </div>
         <div class="col-auto">
-          <input type="date" v-model="form.date" required class="form-control" />
-        </div>
-        <div class="col-auto">
-          <span class="form-text text-muted">(修改時可調整)</span>
+          <date-picker v-model:value="form.date" format="YYYY-MM-DD" value-type="format" input-class="form-control" placeholder="選擇日期"></date-picker>
         </div>
       </div>
       <div class="row g-3 align-items-center mb-2">
-        <div class="col-auto">
+        <div class="col-auto align-self-start">
           <label class="col-form-label">餐別：</label>
         </div>
         <div class="col-auto">
-          <select v-model="form.mealType" required class="form-select">
-            <option value="早餐">早餐</option>
-            <option value="午餐">午餐</option>
-            <option value="晚餐">晚餐</option>
-            <option value="其他">其他</option>
-          </select>
+          <div class="btn-group meal-btn-group" role="group">
+            <button type="button" class="btn meal-btn" :class="form.mealType === '早餐' ? 'btn-primary' : 'btn-outline-primary'" @click="setMealType('早餐')">
+              <i class="fa-solid fa-sun me-1"></i> 早餐
+            </button>
+            <button type="button" class="btn meal-btn" :class="form.mealType === '午餐' ? 'btn-primary' : 'btn-outline-primary'" @click="setMealType('午餐')">
+              <i class="fa-solid fa-burger me-1"></i> 午餐
+            </button>
+            <button type="button" class="btn meal-btn" :class="form.mealType === '晚餐' ? 'btn-primary' : 'btn-outline-primary'" @click="setMealType('晚餐')">
+              <i class="fa-solid fa-moon me-1"></i> 晚餐
+            </button>
+            <button type="button" class="btn meal-btn" :class="form.mealType === '其他' ? 'btn-primary' : 'btn-outline-primary'" @click="setMealType('其他')">
+              <i class="fa-solid fa-cookie-bite me-1"></i> 其他
+            </button>
+          </div>
         </div>
       </div>
       <div class="row g-3 align-items-center mb-2">
@@ -46,8 +51,8 @@
           <span class="form-text">(大卡)</span>
         </div>
       </div>
-      <button type="submit" class="btn btn-primary me-2">{{ editIndex === null ? '新增' : '更新' }}</button>
-      <button v-if="editIndex !== null" type="button" @click="cancelEdit" class="btn btn-secondary">取消</button>
+      <button type="submit" class="btn btn-primary me-2">{{ editId === null ? '新增' : '更新' }}</button>
+      <button v-if="editId !== null" type="button" @click="cancelEdit" class="btn btn-secondary">取消</button>
     </form>
     <hr />
     <!-- 紀錄列表 -->
@@ -78,32 +83,56 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import DatePicker from 'vue-datepicker-next'
+import 'vue-datepicker-next/index.css'
+import { db } from '../firebase'
+import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc } from 'firebase/firestore'
 
 const records = ref([])
 const form = ref({ date: getTodayDate(), mealType: '早餐', food: '', calories: '' })
-const editIndex = ref(null)
+const editId = ref(null)
+const foodCollection = collection(db, 'foodRecords')
 
-function handleSubmit() {
-  if (editIndex.value === null) {
-    if (!form.value.date) {
-      form.value.date = getTodayDate()
-    }
-    records.value.push({ ...form.value })
+// 讀取 Firestore 資料
+async function fetchRecords() {
+  const querySnapshot = await getDocs(foodCollection)
+  records.value = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+}
+
+onMounted(fetchRecords)
+
+// 設定餐別
+function setMealType(type) {
+  form.value.mealType = type
+}
+
+// 新增或更新
+async function handleSubmit() {
+  if (editId.value === null) {
+    // 新增
+    await addDoc(foodCollection, { ...form.value, calories: Number(form.value.calories) })
   } else {
-    records.value[editIndex.value] = { ...form.value }
+    // 更新
+    const recordRef = doc(db, 'foodRecords', editId.value)
+    await updateDoc(recordRef, { ...form.value, calories: Number(form.value.calories) })
   }
+  await fetchRecords()
   resetForm()
 }
 
 function editRecord(idx) {
-  form.value = { ...records.value[idx] }
-  editIndex.value = idx
+  const record = records.value[idx]
+  form.value = { date: record.date, mealType: record.mealType, food: record.food, calories: record.calories }
+  editId.value = record.id
 }
 
-function deleteRecord(idx) {
-  records.value.splice(idx, 1)
-  resetForm()
+async function deleteRecord(idx) {
+  const record = records.value[idx]
+  const recordRef = doc(db, 'foodRecords', record.id)
+  await deleteDoc(recordRef)
+  await fetchRecords()
+  reseorm()
 }
 
 function cancelEdit() {
@@ -112,7 +141,7 @@ function cancelEdit() {
 
 function resetForm() {
   form.value = { date: getTodayDate(), mealType: '早餐', food: '', calories: '' }
-  editIndex.value = null
+  editId.value = null
 }
 
 function getTodayDate() {
@@ -123,6 +152,55 @@ function getTodayDate() {
 }
 </script>
 
-<style scoped>
-/* 可視需要自訂額外樣式 */
+<style>
+/* 覆寫 datepicker 樣式以符合專案 */
+.mx-datepicker {
+  width: auto;
+}
+.meal-btn-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  max-width: 320px;
+}
+.meal-btn-group .btn {
+  flex: 1 1 40%;
+  min-width: 120px;
+}
+@media (max-width: 600px) {
+  .meal-btn-group {
+    max-width: 260px;
+    gap: 0.5rem 0.5rem;
+  }
+  .meal-btn-group .btn {
+    flex: 1 1 45%;
+    min-width: 100px;
+    margin-bottom: 0.5rem;
+  }
+  .meal-btn-group .btn:nth-child(3),
+  .meal-btn-group .btn:nth-child(4) {
+    margin-top: 0;
+  }
+  .meal-btn-group .btn:nth-child(3) {
+    margin-left: 0;
+    padding-left: 0;
+  }
+  .meal-btn-group .btn:nth-child(4) {
+    margin-left: 0.5rem;
+  }
+}
+.meal-btn {
+  border-radius: 0.3rem !important;
+}
+input.form-control,
+select.form-select,
+.date-picker input.form-control,
+.mx-input,
+.date-picker .mx-input {
+  border-radius: 0.3rem !important;
+}
+.btn,
+.btn-group .btn {
+  border-radius: 0.3rem !important;
+}
 </style> 
